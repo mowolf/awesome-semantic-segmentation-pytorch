@@ -29,12 +29,12 @@ class DeepLabV3Plus(nn.Module):
         Image Segmentation."
     """
 
-    def __init__(self, nclass, backbone='xception', aux=True, pretrained_base=True, dilated=True, **kwargs):
+    def __init__(self, nclass, backbone='xception', aux=True, pretrained_base=False, dilated=True, **kwargs):
         super(DeepLabV3Plus, self).__init__()
         self.aux = aux
         self.nclass = nclass
         output_stride = 8 if dilated else 32
-
+        pretrained_base = False
         self.pretrained = get_xception(pretrained=pretrained_base, output_stride=output_stride, **kwargs)
 
         # deeplabv3 plus
@@ -122,6 +122,7 @@ def get_deeplabv3_plus(dataset='pascal_voc', backbone='xception', pretrained=Fal
         'ade20k': 'ade',
         'coco': 'coco',
         'citys': 'citys',
+        'celebahq': 'celebahq',
     }
     from ..data.dataloader import datasets
     model = DeepLabV3Plus(datasets[dataset].NUM_CLASS, backbone=backbone, pretrained_base=pretrained_base, **kwargs)

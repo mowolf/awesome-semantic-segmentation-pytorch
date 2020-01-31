@@ -90,6 +90,10 @@ def get_color_pallete(npimg, dataset='pascal_voc'):
         out_img = Image.fromarray(npimg.astype('uint8'))
         out_img.putpalette(cityspallete)
         return out_img
+    elif dataset == 'celebahq':
+        out_img = Image.fromarray(npimg.astype('uint8'))
+        out_img.putpalette(celebahqpallete)
+        return out_img
     out_img = Image.fromarray(npimg.astype('uint8'))
     out_img.putpalette(vocpallete)
     return out_img
@@ -155,4 +159,21 @@ cityspallete = [
     0, 80, 100,
     0, 0, 230,
     119, 11, 32,
+]
+
+celebahqpallete = [
+    0, 0, 0, 204,
+    0, 0, 76, 153,
+    0, 204, 204,
+    0, 51, 51,
+    255, 204, 0,
+    204, 0, 255,
+    255, 102, 51,
+    0, 255, 0, 0,
+    102, 204, 0,
+    255, 255, 0,
+    0, 0, 153,
+    0, 0, 204,
+    255, 153, 51,
+    255, 51, 153
 ]

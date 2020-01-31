@@ -78,6 +78,7 @@ _models = {
     'espnet_citys': get_espnet_citys,
     'lednet_citys': get_lednet_citys,
     'dfanet_citys': get_dfanet_citys,
+    'cgnet_celebahq': get_cgnet_celebahq,
 }
 
 

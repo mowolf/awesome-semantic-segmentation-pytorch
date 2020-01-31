@@ -65,4 +65,4 @@ def get_model_file(name, root='~/.torch/models'):
     if os.path.exists(file_path):
         return file_path
     else:
-        raise ValueError('Model file is not found. Downloading or trainning.')
+        raise ValueError(f'{file_path} - Model file not found. Downloading or training.')

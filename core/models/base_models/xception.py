@@ -383,7 +383,7 @@ class XceptionA(nn.Module):
 
 
 # Constructor
-def get_xception(pretrained=False, root='~/.torch/models', **kwargs):
+def get_xception(pretrained=True, root='~/.torch/models', **kwargs):
     model = Xception65(**kwargs)
     if pretrained:
         from ..model_store import get_model_file

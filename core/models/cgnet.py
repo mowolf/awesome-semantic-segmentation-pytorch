@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 from core.nn import _ConvBNPReLU, _BNPReLU
 
-__all__ = ['CGNet', 'get_cgnet', 'get_cgnet_citys']
+__all__ = ['CGNet', 'get_cgnet', 'get_cgnet_citys', 'get_cgnet_celebahq']
 
 
 class CGNet(nn.Module):
@@ -190,6 +190,7 @@ def get_cgnet(dataset='citys', backbone='', pretrained=False, root='~/.torch/mod
         'ade20k': 'ade',
         'coco': 'coco',
         'citys': 'citys',
+        'celebahq': 'celebahq',
     }
     from core.data.dataloader import datasets
     model = CGNet(datasets[dataset].NUM_CLASS, backbone=backbone, pretrained_base=pretrained_base, **kwargs)
@@ -203,6 +204,10 @@ def get_cgnet(dataset='citys', backbone='', pretrained=False, root='~/.torch/mod
 
 def get_cgnet_citys(**kwargs):
     return get_cgnet('citys', '', **kwargs)
+
+
+def get_cgnet_celebahq(**kwargs):
+    return get_cgnet('celebahq', '', **kwargs)
 
 
 if __name__ == '__main__':

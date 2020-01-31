@@ -23,6 +23,9 @@ from core.utils.logger import setup_logger
 from core.utils.lr_scheduler import WarmupPolyLR
 from core.utils.score import SegmentationMetric
 
+from torchvision.utils import make_grid
+from torch.utils.tensorboard import SummaryWriter
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Semantic Segmentation Training With Pytorch')
@@ -40,13 +43,13 @@ def parse_args():
                                  'resnet101', 'resnet152', 'densenet121',
                                  'densenet161', 'densenet169', 'densenet201'],
                         help='backbone name (default: vgg16)')
-    parser.add_argument('--dataset', type=str, default='pascal_voc',
+    parser.add_argument('--dataset', type=str, default='celebahq',
                         choices=['pascal_voc', 'pascal_aug', 'ade20k',
-                                 'citys', 'sbu'],
+                                 'citys', 'sbu', 'celebahq'],
                         help='dataset name (default: pascal_voc)')
-    parser.add_argument('--base-size', type=int, default=520,
+    parser.add_argument('--base-size', type=int, default=256,
                         help='base image size')
-    parser.add_argument('--crop-size', type=int, default=480,
+    parser.add_argument('--crop-size', type=int, default=256,
                         help='crop image size')
     parser.add_argument('--workers', '-j', type=int, default=4,
                         metavar='N', help='dataloader threads')
@@ -63,7 +66,7 @@ def parse_args():
                         help='input batch size for training (default: 8)')
     parser.add_argument('--start_epoch', type=int, default=0,
                         metavar='N', help='start epochs (default:0)')
-    parser.add_argument('--epochs', type=int, default=50, metavar='N',
+    parser.add_argument('--epochs', type=int, default=100, metavar='N',
                         help='number of epochs to train (default: 50)')
     parser.add_argument('--lr', type=float, default=1e-4, metavar='LR',
                         help='learning rate (default: 1e-4)')
@@ -109,6 +112,7 @@ def parse_args():
             'ade20k': 160,
             'citys': 120,
             'sbu': 160,
+            'celebaHQ': 120,
         }
         args.epochs = epoches[args.dataset.lower()]
     if args.lr is None:
@@ -120,15 +124,78 @@ def parse_args():
             'ade20k': 0.01,
             'citys': 0.01,
             'sbu': 0.001,
+            'celebaHQ': 0.01,
         }
         args.lr = lrs[args.dataset.lower()] / 8 * args.batch_size
     return args
+
+
+class TensorboardVisualizer:
+    def __init__(self, args, cli):
+        print("Setting up tensorboard.")
+
+        time_now = datetime.datetime.now()
+        log_dir = './tensorboard/' + time_now.strftime("%d%b_") + args.model + "_" + args.backbone
+
+        self.args = args
+        # Writer will output to ./runs/ directory by default
+        self.writer = SummaryWriter(log_dir=log_dir )
+
+        cli_text = "poetry run python " + ' '.join(cli)
+        self.writer.add_text("Info/Details", cli_text)
+        self.writer.add_text("Info/Details", 'Model: ' + args.model)
+        self.writer.add_text("Info/Details", 'Dataset: ' + args.dataset)
+        self.writer.add_text("Info/Details", 'backbone: ' + args.backbone)
+
+    def display_current_results(self, visuals, epoch):
+        width = 4
+        batch_size = visuals[0].size()[0]
+        if batch_size < width:
+            width = batch_size
+
+        # cast tensor back to image shape and discard any additional appended info
+        # shape batch_size x 3 x image_size x image_size
+        image_1 = make_grid(visuals[0], nrow=width, padding=2, normalize=True,
+                            range=None,
+                            scale_each=False,
+                            pad_value=0)
+        # shape: batch_size x image_size x image_size
+        visuals[1] = torch.stack((visuals[1] * 255 / 15,) * 3, axis=-1)
+        visuals[1] = visuals[1].permute(0, 3, 1, 2)
+        image_2 = make_grid(visuals[1], nrow=width, padding=2, normalize=False, range=None,
+                            scale_each=False,
+                            pad_value=0)
+        image_2 = image_2.type(torch.float32)
+        # shape: batch_size x image_size x image_size
+        visuals[2] = torch.stack((visuals[2] * 255 / 15,) * 3, axis=-1)
+        visuals[2] = visuals[2].permute(0, 3, 1, 2)
+        image_3 = make_grid(visuals[2] / 2 + 0.5, nrow=width, padding=2, normalize=False, range=None,
+                            scale_each=False,
+                            pad_value=0)
+
+        image_grid = torch.cat((image_1, image_2, image_3), 1)
+
+        self.writer.add_image(f'ImageGrid/train', image_grid, epoch)
+
+    def plot_current_losses(self, total_iters, loss):
+        self.writer.add_scalar("Losses", loss, total_iters)
+
+    def plot_learning_rate(self, lr, epoch):
+        self.writer.add_scalar("LR", lr, epoch)
+
+    def plot_validation_results(self, total_iters, pixAcc, mIoU):
+        self.writer.add_scalar("Validation/pixAcc", pixAcc, total_iters)
+        self.writer.add_scalar("Validation/mIoU", mIoU, total_iters)
+        pass
 
 
 class Trainer(object):
     def __init__(self, args):
         self.args = args
         self.device = torch.device(args.device)
+
+        # Visualizer
+        self.visualizer = TensorboardVisualizer(args, sys.argv)
 
         # image transform
         input_transform = transforms.Compose([
@@ -159,7 +226,7 @@ class Trainer(object):
         # create network
         BatchNorm2d = nn.SyncBatchNorm if args.distributed else nn.BatchNorm2d
         self.model = get_segmentation_model(model=args.model, dataset=args.dataset, backbone=args.backbone,
-                                            aux=args.aux, jpu=args.jpu, norm_layer=BatchNorm2d).to(self.device)
+                                            aux=args.aux, norm_layer=BatchNorm2d).to(self.device) # jpu=args.jpu
 
         # resume checkpoint if needed
         if args.resume:
@@ -213,7 +280,6 @@ class Trainer(object):
         self.model.train()
         for iteration, (images, targets, _) in enumerate(self.train_loader):
             iteration = iteration + 1
-            self.lr_scheduler.step()
 
             images = images.to(self.device)
             targets = targets.to(self.device)
@@ -230,21 +296,29 @@ class Trainer(object):
             self.optimizer.zero_grad()
             losses.backward()
             self.optimizer.step()
+            self.lr_scheduler.step()
 
             eta_seconds = ((time.time() - start_time) / iteration) * (max_iters - iteration)
             eta_string = str(datetime.timedelta(seconds=int(eta_seconds)))
 
+            # write images
+            if iteration % (log_per_iters * 10) == 0:
+                pred = torch.argmax(outputs[0], 1)
+                self.visualizer.display_current_results([images, targets, pred], iteration)
+
+            # write to console
             if iteration % log_per_iters == 0 and save_to_disk:
                 logger.info(
                     "Iters: {:d}/{:d} || Lr: {:.6f} || Loss: {:.4f} || Cost Time: {} || Estimated Time: {}".format(
                         iteration, max_iters, self.optimizer.param_groups[0]['lr'], losses_reduced.item(),
                         str(datetime.timedelta(seconds=int(time.time() - start_time))), eta_string))
+                self.visualizer.plot_current_losses(iteration, losses_reduced.item())
 
             if iteration % save_per_iters == 0 and save_to_disk:
                 save_checkpoint(self.model, self.args, is_best=False)
 
             if not self.args.skip_val and iteration % val_per_iters == 0:
-                self.validation()
+                self.validation(iteration)
                 self.model.train()
 
         save_checkpoint(self.model, self.args, is_best=False)
@@ -254,7 +328,7 @@ class Trainer(object):
             "Total training time: {} ({:.4f}s / it)".format(
                 total_training_str, total_training_time / max_iters))
 
-    def validation(self):
+    def validation(self, iteration):
         # total_inter, total_union, total_correct, total_label = 0, 0, 0, 0
         is_best = False
         self.metric.reset()
@@ -264,6 +338,8 @@ class Trainer(object):
             model = self.model
         torch.cuda.empty_cache()  # TODO check if it helps
         model.eval()
+        mean_pixAcc = 0
+        mean_mIoU = 0
         for i, (image, target, filename) in enumerate(self.val_loader):
             image = image.to(self.device)
             target = target.to(self.device)
@@ -273,6 +349,15 @@ class Trainer(object):
             self.metric.update(outputs[0], target)
             pixAcc, mIoU = self.metric.get()
             logger.info("Sample: {:d}, Validation pixAcc: {:.3f}, mIoU: {:.3f}".format(i + 1, pixAcc, mIoU))
+
+            # save mean
+            mean_mIoU += mIoU
+            mean_pixAcc += pixAcc
+
+        mean_mIoU = mean_mIoU / (i + 1)
+        mean_pixAcc = mean_pixAcc / (i + 1)
+
+        self.visualizer.plot_validation_results(iteration, mean_pixAcc, mean_mIoU)
 
         new_pred = (pixAcc + mIoU) / 2
         if new_pred > self.best_pred:
